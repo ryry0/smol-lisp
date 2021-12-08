@@ -5,8 +5,26 @@ type Expression =
     | Float of float
     | Integer of int
     | Sublist of List<Expression>
+    | FloatFunction of (float -> float)
     | Error of string
 
+type Environment =
+    {
+        env : Map<string, Expression>
+        outer_env : Map<string, Expression> option
+    }
+
+(*
+//----------- eval
+let rec eval ast env =
+    match ast with
+    | Sublist l -> List.map eval l
+    | Symbol sym -> 
+    *)
+
+
+
+//----------- Parsing
 let tokenize (s: string) =
     s
         .Replace("(", " ( ")
@@ -47,9 +65,34 @@ let parse tokens =
     match exprlist with
     | [] -> Error "malformed input"
     | _ ->
-        let ast =  List.head exprlist
-        match ast with
-        | Sublist y ->  ast
-        | Error str -> Error str
-        | _ -> Error "missing opening parenthesis"
+        match List.head exprlist with
+        | Sublist _ -> Sublist exprlist
+        | _ -> Error "missing opening parens"
 
+
+let rec to_string expression =
+    match expression with
+    | Error s -> s
+    | Sublist l ->
+        match l with
+        | [] -> " () "
+        | l ->
+            let inner =
+                List.map to_string l |> List.reduce (+)
+            " ( " + inner + " ) "
+    | Float x -> string x
+    | Integer x -> string x
+    | Symbol s -> s
+
+//---------REPL
+let rec repl x =
+    printf "smol>"
+    let res =
+        System.Console.ReadLine() |>
+        tokenize |>
+        parse |>
+        to_string
+
+    printfn "%s" res
+
+    repl x

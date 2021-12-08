@@ -1,4 +1,4 @@
 ﻿[<EntryPoint>]
 let main args =
-    printfn "hello args :%A" args
+    Smol.repl ()
     0
