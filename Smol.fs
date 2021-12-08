@@ -15,6 +15,15 @@ let tokenize (s: string) =
     |> Array.toList
     |> List.filter (fun x -> x <> "")
 
+let atomize (s : string) =
+    try
+        s |> int |> Integer
+    with :? System.FormatException ->
+        try
+            s |> float |> Float
+        with :? System.FormatException ->
+            Symbol s
+
 let rec parse_each tokens =
     let rec loop_tail acc rest =
         match rest with
@@ -29,7 +38,7 @@ let rec parse_each tokens =
                 loop_tail (listacc @ [ Sublist sublist ], rest) rest
             | _ ->
                 let listacc = fst acc
-                loop_tail (listacc @ [ Symbol x ], xs) xs
+                loop_tail (listacc @ [ atomize x ], xs) xs
 
     loop_tail ([], tokens) tokens
 
@@ -41,5 +50,6 @@ let parse tokens =
         let ast =  List.head exprlist
         match ast with
         | Sublist y ->  ast
+        | Error str -> Error str
         | _ -> Error "missing opening parenthesis"
 
