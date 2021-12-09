@@ -57,7 +57,7 @@ let define (args: Expression list) env =
         match Map.tryFind name env with
         | Some found -> (Error $"define: Symbol already defined {name}", env)
         | None ->
-            let new_env = Map.add name value env
+            let new_env = Map.add name value env //TODO: eval value?
             (Symbol name, new_env)
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments to define", env)
@@ -67,6 +67,24 @@ let begin' args env =
     let (res, res_env) = foldenv args env
     (res |> List.rev |> List.head, res_env)
 
+let if' (args: Expression list) (env: Env) : Expression * Env =
+    match args with
+    | []
+    | [_]
+    | _::_::[] -> (Error "if: Not enough arguments", env)
+    | cond::conseq::alt::[] ->
+        let (res, res_env) = eval env cond
+        printf $"{res}"
+        match res with
+        | Bool x->
+            if x then
+                eval res_env conseq
+            else
+                eval res_env alt
+        | _ -> (Error "if: Condition does not return a boolean", env)
+
+
+    | _ -> (Error "if: too many arguments", env)
 
 //convenience function for returning results when operation does nothing to env
 let nop_env f args env =
@@ -148,6 +166,7 @@ let global_env =
            |> foldenv_bind
            |> Function)
           ("!=", not_equals |> nop_env |> foldenv_bind |> Function)
+          ("if", Function if')
           ("begin", Function begin')
           ("define", define |> Function) ]
 
