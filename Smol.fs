@@ -8,24 +8,18 @@ type Expression =
     | FloatFunction of (float -> float)
     | Error of string
 
-type Environment =
-    {
-        env : Map<string, Expression>
-        //outer_env : Map<string, Expression> option
-    }
+type Environment = { env: Map<string, Expression> }
 
 //----------- eval
-let rec eval ast env =
-    ()
-    //match ast with
-    //| Sublist l -> List.map eval l
+let rec eval ast env = ()
+//match ast with
+//| Sublist l -> List.map eval l
 
 
-let standard_env =
-    ()
-    //{ env = Map
-     //   [
-      //      ("+",
+let standard_env = ()
+//{ env = Map
+//   [
+//      ("+",
 
 
 //----------- Parsing
@@ -37,14 +31,15 @@ let tokenize (s: string) =
     |> Array.toList
     |> List.filter (fun x -> x <> "")
 
-let atomize (s : string) =
+let atomize (s: string) =
     try
         s |> int |> Integer
-    with :? System.FormatException ->
+    with
+    | :? System.FormatException ->
         try
             s |> float |> Float
-        with :? System.FormatException ->
-            Symbol s
+        with
+        | :? System.FormatException -> Symbol s
 
 let rec parse_each tokens =
     let rec loop_tail acc rest =
@@ -67,6 +62,7 @@ let rec parse_each tokens =
 
 let parse tokens =
     let (exprlist, rest, parens) = parse_each tokens
+
     match parens with
     | i when i < 0 -> Error $"Unexpected closing parenthesis"
     | i when i > 0 -> Error $"Missing {i} closing parentheses"
@@ -86,8 +82,7 @@ let rec to_string expression =
         match l with
         | [] -> " () "
         | l ->
-            let inner =
-                List.map to_string l |> List.reduce (+)
+            let inner = List.map to_string l |> List.reduce (+)
             " ( " + inner + " ) "
     | Float x -> string x
     | Integer x -> string x
@@ -96,11 +91,12 @@ let rec to_string expression =
 //---------REPL
 let rec repl x =
     printf "smol>"
+
     let res =
-        System.Console.ReadLine() |>
-        tokenize |>
-        parse |>
-        to_string
+        System.Console.ReadLine()
+        |> tokenize
+        |> parse
+        |> to_string
 
     printfn "%s" res
 
