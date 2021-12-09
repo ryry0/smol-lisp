@@ -57,7 +57,8 @@ let define (args: Expression list) env =
         match Map.tryFind name env with
         | Some found -> (Error $"define: Symbol already defined {name}", env)
         | None ->
-            let new_env = Map.add name value env //TODO: eval value?
+            let (res_value, res_env) = eval env value
+            let new_env = Map.add name res_value res_env
             (Symbol name, new_env)
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments to define", env)
@@ -70,13 +71,13 @@ let begin' args env =
 let if' (args: Expression list) (env: Env) : Expression * Env =
     match args with
     | []
-    | [_]
-    | _::_::[] -> (Error "if: Not enough arguments", env)
-    | cond::conseq::alt::[] ->
+    | [ _ ]
+    | _ :: _ :: [] -> (Error "if: Not enough arguments", env)
+    | cond :: conseq :: alt :: [] ->
         let (res, res_env) = eval env cond
-        printf $"{res}"
+
         match res with
-        | Bool x->
+        | Bool x ->
             if x then
                 eval res_env conseq
             else
