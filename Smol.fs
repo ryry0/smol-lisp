@@ -11,23 +11,61 @@ type Expression =
 
 and Env = Map<string, Expression>
 
+let lookup str env =
+    match Map.tryFind str env with
+    | Some x -> x
+    | None -> Error $"Symbol lookup failure: {str}"
+
+
+//----------- eval
+let rec eval env expr =
+    match expr with
+    | Float _
+    | Integer _
+    | Bool _ as literal -> (literal, env)
+    | Symbol str -> (lookup str env, env)
+    | Sublist (h :: args) ->
+        let (callable, env_evaled) = eval env h
+
+        match callable with
+        | Function f -> f args env_evaled
+        | Error str as error -> (error, env_evaled)
+        | e -> (Error $"eval: {e} not callable", env_evaled)
+    | _ -> (Error "eval: Not implemented", env)
+
+
+let foldenv args env =
+    //accumulates the results in list l while threading the environment through
+    //the list
+    let thread_env (l, e) x =
+        let (res, res_e) = eval e x
+        (l @ [ res ], res_e)
+
+    List.fold thread_env ([], env) args
+
+let foldenv_bind f args env =
+    let (args_evaled, env_evaled) = foldenv args env
+    let (res, f_env_res) = f args_evaled env_evaled
+    (res, f_env_res)
+
 //implementing comparisons and arith is great example of accidental complexity
 //implemented separate equality comparison since typesystem coulnd't generalize float -> bool
 //----------- builtins
 let define (args: Expression list) env =
-    printfn $"{args}"
-
     match args with
     | [ Symbol name; value ] ->
         match Map.tryFind name env with
         | Some found -> (Error $"define: Symbol already defined {name}", env)
         | None ->
             let new_env = Map.add name value env
-            printfn $"{new_env}"
             (Symbol name, new_env)
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments to define", env)
     | _ -> (Error "define: Too many arguments to define", env)
+
+let begin' args env =
+    let (res, res_env) = foldenv args env
+    (res |> List.rev |> List.head, res_env)
 
 
 //convenience function for returning results when operation does nothing to env
@@ -78,71 +116,39 @@ let not_equals (args: Expression list) (env: Env) =
     | Error _ as error -> error
     | _ -> Error "notequals"
 
-let lookup str env =
-    match Map.tryFind str env with
-    | Some x -> x
-    | None -> Error $"Symbol lookup failure: {str}"
-
-//----------- eval
-let rec eval env expr =
-    match expr with
-    | Float _
-    | Integer _
-    | Bool _ as literal -> (literal, env)
-    | Symbol str -> (lookup str env, env)
-    | Sublist (h :: args) ->
-        let (callable, env_evaled) = eval env h
-
-        match callable with
-        | Function f -> f args env_evaled
-        | Error str as error -> (error, env_evaled)
-        | _ -> (Error "Not callable", env_evaled)
-    | _ -> (Error "Not implemented", env)
-
-
-let foldenv_args f args env =
-    //accumulates the results in list l while threading the environment through
-    //the list
-    let thread_env (l, e) x =
-        let (res, res_e) = eval e x
-        (l @ [ res ], res_e)
-
-    let (args_evaled, env_evaled) = List.fold thread_env ([], env) args
-    let (res, f_env_res) = f args_evaled env_evaled
-    (res, f_env_res)
-
 //----------- Environment
 let global_env =
-    Env [ ("+", (+) |> math |> nop_env |> foldenv_args |> Function)
-          ("-", (-) |> math |> nop_env |> foldenv_args |> Function)
-          ("*", (*) |> math |> nop_env |> foldenv_args |> Function)
-          ("/", (/) |> math |> nop_env |> foldenv_args |> Function)
+    Env [ ("+", (+) |> math |> nop_env |> foldenv_bind |> Function)
+          ("-", (-) |> math |> nop_env |> foldenv_bind |> Function)
+          ("*", (*) |> math |> nop_env |> foldenv_bind |> Function)
+          ("/", (/) |> math |> nop_env |> foldenv_bind |> Function)
           ("<",
            (<)
            |> comparison
            |> nop_env
-           |> foldenv_args
+           |> foldenv_bind
            |> Function)
           (">",
            (>)
            |> comparison
            |> nop_env
-           |> foldenv_args
+           |> foldenv_bind
            |> Function)
-          ("=", equals |> nop_env |> foldenv_args |> Function)
+          ("=", equals |> nop_env |> foldenv_bind |> Function)
           ("<=",
            (<=)
            |> comparison
            |> nop_env
-           |> foldenv_args
+           |> foldenv_bind
            |> Function)
           (">=",
            (>=)
            |> comparison
            |> nop_env
-           |> foldenv_args
+           |> foldenv_bind
            |> Function)
-          ("!=", not_equals |> nop_env |> foldenv_args |> Function)
+          ("!=", not_equals |> nop_env |> foldenv_bind |> Function)
+          ("begin", Function begin')
           ("define", define |> Function) ]
 
 //----------- Parsing
