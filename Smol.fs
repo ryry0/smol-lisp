@@ -11,6 +11,8 @@ type Expression =
 
 and Env = Map<string, Expression>
 
+//implementing comparisons and arith is great example of accidental complexity
+//implemented separate equality comparison since typesystem coulnd't generalize float -> bool
 //----------- builtins
 let math op (args: Expression list) (env: Env) =
     let f x y =
@@ -28,11 +30,31 @@ let comparison op (args: Expression list) (env: Env) =
         match (x, y) with
         | (Float x, Float y) -> Bool(op x y)
         | (Integer x, Integer y) -> Bool(op x y)
-        | _ -> Error $"Incorrect type"
+        | _ -> Error $"Incorrect or mismatched type"
+
 
     match args with
     | [] -> Error $"no arguments"
-    | l -> List.reduce f l
+    | l -> List.reduce f args
+
+let equals (args: Expression list) (env: Env) =
+    let f x y =
+        match (x, y) with
+        | (Float x, Float y) -> Bool((=) x y)
+        | (Integer x, Integer y) -> Bool((=) x y)
+        | (Bool x, Bool y) -> Bool((=) x y)
+        | _ -> Error $"Incorrect or mismatched type"
+
+
+    match args with
+    | [] -> Error $"no arguments"
+    | l -> List.reduce f args
+
+let not_equals (args: Expression list) (env: Env) =
+    match equals args env with
+    | Bool x -> Bool(not x)
+    | Error _ as error -> error
+    | _ -> Error "notequals"
 
 //----------- Environment
 let global_env =
@@ -42,10 +64,10 @@ let global_env =
           ("/", Function <| math (/))
           ("<", Function <| comparison (<))
           (">", Function <| comparison (>))
-          ("=", Function <| comparison (=))
+          ("=", Function <| equals)
           ("<=", Function <| comparison (<=))
           (">=", Function <| comparison (>=))
-          ("!=", Function <| comparison (<>)) ]
+          ("!=", Function <| not_equals) ]
 
 let lookup str env =
     match Map.tryFind str env with
