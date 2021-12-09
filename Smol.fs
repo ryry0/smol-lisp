@@ -178,8 +178,8 @@ let rec repl x =
         System.Console.ReadLine()
         |> tokenize
         |> parse
-        |> to_string
+        |> eval global_env
 
-    printfn "%s" res
+    printfn $"{res}"
 
     repl x
