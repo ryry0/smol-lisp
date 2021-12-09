@@ -5,22 +5,51 @@ type Expression =
     | Float of float
     | Integer of int
     | Sublist of List<Expression>
-    | FloatFunction of (float -> float)
+    | Function of (List<Expression> -> Env -> Expression)
     | Error of string
+and Env = Map<string, Expression>
 
-type Environment = { env: Map<string, Expression> }
+//----------- builtins
+let math op (args: Expression list) (env: Env) =
+    let f x y =
+        match (x, y) with
+        | (Float x, Float y) -> Float (op x y)
+        | (Integer x, Integer y) -> Integer <| int (op (float x) (float y))
+        | _ -> Error $"Incorrect type"
+
+    match args with
+    | [] -> Error $"no arguments"
+    | l ->
+        List.reduce f l
+
+//----------- Environment
+let global_env =
+    Env [
+        ("+", Function <| math (+))
+        ("-", Function <| math (-))
+        ("*", Function <| math (*))
+        ("/", Function <| math (/))
+    ]
+
+let lookup str env =
+    match Map.tryFind str env with
+    | Some x -> x
+    | None -> Error $"Symbol lookup failure: {str}"
 
 //----------- eval
-let rec eval ast env = ()
-//match ast with
-//| Sublist l -> List.map eval l
-
-
-let standard_env = ()
-//{ env = Map
-//   [
-//      ("+",
-
+let rec eval env expr =
+    match expr with
+    | Float _ | Integer _ as literal -> literal
+    | Symbol str ->
+        lookup str env
+    | Sublist (h::t) ->
+        let callable = eval env h
+        let args = List.map (eval env) t
+        match callable with
+        | Function f -> f args env
+        | Error str as error -> error
+        | _ ->  Error "Not callable"
+    | _ -> Error "Not implemented"
 
 //----------- Parsing
 let tokenize (s: string) =
@@ -48,8 +77,8 @@ let rec parse_each tokens =
         | x :: xs ->
             match x with
             | ")" ->
-                let (ast, tok, num_parens) = acc
-                (ast, List.skip 1 tok, num_parens - 1) // skip paren in token
+                let (exprlist, tok, num_parens) = acc
+                (exprlist, List.skip 1 tok, num_parens - 1) // skip paren in token
             | "(" ->
                 let (sublist, rest, num_parens) = parse_each xs
                 let (listacc, _, _) = acc
@@ -71,7 +100,7 @@ let parse tokens =
         | [] -> Error "malformed input"
         | _ ->
             match List.head exprlist with
-            | Sublist _ -> Sublist exprlist
+            | Sublist y as res -> res
             | _ -> Error "missing opening parens"
 
 
@@ -89,6 +118,14 @@ let rec to_string expression =
     | Symbol s -> s
 
 //---------REPL
+
+//helper to use in repl
+let fsi_eval str =
+    str
+    |> tokenize
+    |> parse
+    |> eval global_env
+
 let rec repl x =
     printf "smol>"
 
