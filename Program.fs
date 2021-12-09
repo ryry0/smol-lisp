@@ -1,4 +1,4 @@
 ﻿[<EntryPoint>]
 let main args =
-    Smol.repl ()
+    Smol.repl Smol.global_env
     0

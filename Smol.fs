@@ -16,15 +16,17 @@ and Env = Map<string, Expression>
 //----------- builtins
 let define (args: Expression list) env =
     printfn $"{args}"
+
     match args with
-    | [Symbol name; value] ->
+    | [ Symbol name; value ] ->
         match Map.tryFind name env with
-        | Some found -> (Error $"define: Symbol already defined {found}", env)
+        | Some found -> (Error $"define: Symbol already defined {name}", env)
         | None ->
             let new_env = Map.add name value env
-            (Sublist [], new_env)
+            printfn $"{new_env}"
+            (Symbol name, new_env)
     | [] -> (Error "define: No name provided", env)
-    | [x] -> (Error "define: Too few arguments to define", env)
+    | [ x ] -> (Error "define: Too few arguments to define", env)
     | _ -> (Error "define: Too many arguments to define", env)
 
 
@@ -32,6 +34,7 @@ let define (args: Expression list) env =
 let nop_env f args env =
     let res = f args env
     (res, env)
+
 
 let math op (args: Expression list) (env: Env) =
     let f x y =
@@ -75,20 +78,6 @@ let not_equals (args: Expression list) (env: Env) =
     | Error _ as error -> error
     | _ -> Error "notequals"
 
-//----------- Environment
-let global_env =
-    Env [ ("+", Function <| nop_env (math (+)))
-          ("-", Function <| nop_env (math (-)))
-          ("*", Function <| nop_env (math (*)))
-          ("/", Function <| nop_env (math (/)))
-          ("<", Function <| nop_env (comparison (<)))
-          (">", Function <| nop_env (comparison (>)))
-          ("=", Function <| nop_env (equals))
-          ("<=", Function <| nop_env (comparison (<=)))
-          (">=", Function <| nop_env (comparison (>=)))
-          ("!=", Function <| nop_env (not_equals))
-          ("define", Function <| define) ]
-
 let lookup str env =
     match Map.tryFind str env with
     | Some x -> x
@@ -96,26 +85,65 @@ let lookup str env =
 
 //----------- eval
 let rec eval env expr =
-    //accumulates the results in list l while threading the environment through
-    //the list
-    let thread_env (l,e) x =
-        let (res, res_e) = eval e x
-        (l @ [res], res_e)
-
     match expr with
     | Float _
     | Integer _
     | Bool _ as literal -> (literal, env)
     | Symbol str -> (lookup str env, env)
-    | Sublist (h :: t) ->
-        let (callable, env1) = eval env h
-        let (args, env2) = List.fold thread_env ([], env1) t
+    | Sublist (h :: args) ->
+        let (callable, env_evaled) = eval env h
 
         match callable with
-        | Function f -> f args env2
-        | Error str as error -> (error, env2)
-        | _ -> (Error "Not callable", env2)
+        | Function f -> f args env_evaled
+        | Error str as error -> (error, env_evaled)
+        | _ -> (Error "Not callable", env_evaled)
     | _ -> (Error "Not implemented", env)
+
+
+let foldenv_args f args env =
+    //accumulates the results in list l while threading the environment through
+    //the list
+    let thread_env (l, e) x =
+        let (res, res_e) = eval e x
+        (l @ [ res ], res_e)
+
+    let (args_evaled, env_evaled) = List.fold thread_env ([], env) args
+    let (res, f_env_res) = f args_evaled env_evaled
+    (res, f_env_res)
+
+//----------- Environment
+let global_env =
+    Env [ ("+", (+) |> math |> nop_env |> foldenv_args |> Function)
+          ("-", (-) |> math |> nop_env |> foldenv_args |> Function)
+          ("*", (*) |> math |> nop_env |> foldenv_args |> Function)
+          ("/", (/) |> math |> nop_env |> foldenv_args |> Function)
+          ("<",
+           (<)
+           |> comparison
+           |> nop_env
+           |> foldenv_args
+           |> Function)
+          (">",
+           (>)
+           |> comparison
+           |> nop_env
+           |> foldenv_args
+           |> Function)
+          ("=", equals |> nop_env |> foldenv_args |> Function)
+          ("<=",
+           (<=)
+           |> comparison
+           |> nop_env
+           |> foldenv_args
+           |> Function)
+          (">=",
+           (>=)
+           |> comparison
+           |> nop_env
+           |> foldenv_args
+           |> Function)
+          ("!=", not_equals |> nop_env |> foldenv_args |> Function)
+          ("define", define |> Function) ]
 
 //----------- Parsing
 let tokenize (s: string) =
@@ -200,12 +228,12 @@ let fsi_eval str =
 let rec repl env =
     printf "smol>"
 
-    let res =
+    let (res, new_env) =
         System.Console.ReadLine()
         |> tokenize
         |> parse
-        |> eval global_env
+        |> eval env
 
     printfn $"{res}"
 
-    repl env
+    repl new_env
