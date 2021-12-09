@@ -6,7 +6,7 @@ type Expression =
     | Integer of int
     | Bool of bool
     | Sublist of List<Expression>
-    | Function of (List<Expression> -> Env -> Expression)
+    | Function of (List<Expression> -> Env -> Expression * Env)
     | Error of string
 
 and Env = Map<string, Expression>
@@ -14,15 +14,34 @@ and Env = Map<string, Expression>
 //implementing comparisons and arith is great example of accidental complexity
 //implemented separate equality comparison since typesystem coulnd't generalize float -> bool
 //----------- builtins
+let define (args: Expression list) env =
+    printfn $"{args}"
+    match args with
+    | [Symbol name; value] ->
+        match Map.tryFind name env with
+        | Some found -> (Error $"define: Symbol already defined {found}", env)
+        | None ->
+            let new_env = Map.add name value env
+            (Sublist [], new_env)
+    | [] -> (Error "define: No name provided", env)
+    | [x] -> (Error "define: Too few arguments to define", env)
+    | _ -> (Error "define: Too many arguments to define", env)
+
+
+//convenience function for returning results when operation does nothing to env
+let nop_env f args env =
+    let res = f args env
+    (res, env)
+
 let math op (args: Expression list) (env: Env) =
     let f x y =
         match (x, y) with
         | (Float x, Float y) -> Float(op x y)
         | (Integer x, Integer y) -> Integer <| int (op (float x) (float y))
-        | _ -> Error $"Incorrect type"
+        | _ -> Error $"op: Incorrect type"
 
     match args with
-    | [] -> Error $"no arguments"
+    | [] -> Error $"op: no arguments"
     | l -> List.reduce f l
 
 let comparison op (args: Expression list) (env: Env) =
@@ -58,16 +77,17 @@ let not_equals (args: Expression list) (env: Env) =
 
 //----------- Environment
 let global_env =
-    Env [ ("+", Function <| math (+))
-          ("-", Function <| math (-))
-          ("*", Function <| math (*))
-          ("/", Function <| math (/))
-          ("<", Function <| comparison (<))
-          (">", Function <| comparison (>))
-          ("=", Function <| equals)
-          ("<=", Function <| comparison (<=))
-          (">=", Function <| comparison (>=))
-          ("!=", Function <| not_equals) ]
+    Env [ ("+", Function <| nop_env (math (+)))
+          ("-", Function <| nop_env (math (-)))
+          ("*", Function <| nop_env (math (*)))
+          ("/", Function <| nop_env (math (/)))
+          ("<", Function <| nop_env (comparison (<)))
+          (">", Function <| nop_env (comparison (>)))
+          ("=", Function <| nop_env (equals))
+          ("<=", Function <| nop_env (comparison (<=)))
+          (">=", Function <| nop_env (comparison (>=)))
+          ("!=", Function <| nop_env (not_equals))
+          ("define", Function <| define) ]
 
 let lookup str env =
     match Map.tryFind str env with
@@ -76,20 +96,26 @@ let lookup str env =
 
 //----------- eval
 let rec eval env expr =
+    //accumulates the results in list l while threading the environment through
+    //the list
+    let thread_env (l,e) x =
+        let (res, res_e) = eval e x
+        (l @ [res], res_e)
+
     match expr with
     | Float _
     | Integer _
-    | Bool _ as literal -> literal
-    | Symbol str -> lookup str env
+    | Bool _ as literal -> (literal, env)
+    | Symbol str -> (lookup str env, env)
     | Sublist (h :: t) ->
-        let callable = eval env h
-        let args = List.map (eval env) t
+        let (callable, env1) = eval env h
+        let (args, env2) = List.fold thread_env ([], env1) t
 
         match callable with
-        | Function f -> f args env
-        | Error str as error -> error
-        | _ -> Error "Not callable"
-    | _ -> Error "Not implemented"
+        | Function f -> f args env2
+        | Error str as error -> (error, env2)
+        | _ -> (Error "Not callable", env2)
+    | _ -> (Error "Not implemented", env)
 
 //----------- Parsing
 let tokenize (s: string) =
@@ -171,7 +197,7 @@ let rec to_string expression =
 let fsi_eval str =
     str |> tokenize |> parse |> eval global_env
 
-let rec repl x =
+let rec repl env =
     printf "smol>"
 
     let res =
@@ -182,4 +208,4 @@ let rec repl x =
 
     printfn $"{res}"
 
-    repl x
+    repl env
