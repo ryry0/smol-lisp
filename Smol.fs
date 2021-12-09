@@ -4,32 +4,48 @@ type Expression =
     | Symbol of string
     | Float of float
     | Integer of int
+    | Bool of bool
     | Sublist of List<Expression>
     | Function of (List<Expression> -> Env -> Expression)
     | Error of string
+
 and Env = Map<string, Expression>
 
 //----------- builtins
 let math op (args: Expression list) (env: Env) =
     let f x y =
         match (x, y) with
-        | (Float x, Float y) -> Float (op x y)
+        | (Float x, Float y) -> Float(op x y)
         | (Integer x, Integer y) -> Integer <| int (op (float x) (float y))
         | _ -> Error $"Incorrect type"
 
     match args with
     | [] -> Error $"no arguments"
-    | l ->
-        List.reduce f l
+    | l -> List.reduce f l
+
+let comparison op (args: Expression list) (env: Env) =
+    let f x y =
+        match (x, y) with
+        | (Float x, Float y) -> Bool(op x y)
+        | (Integer x, Integer y) -> Bool(op x y)
+        | _ -> Error $"Incorrect type"
+
+    match args with
+    | [] -> Error $"no arguments"
+    | l -> List.reduce f l
 
 //----------- Environment
 let global_env =
-    Env [
-        ("+", Function <| math (+))
-        ("-", Function <| math (-))
-        ("*", Function <| math (*))
-        ("/", Function <| math (/))
-    ]
+    Env [ ("+", Function <| math (+))
+          ("-", Function <| math (-))
+          ("*", Function <| math (*))
+          ("/", Function <| math (/))
+          ("<", Function <| comparison (<))
+          (">", Function <| comparison (>))
+          ("=", Function <| comparison (=))
+          ("<=", Function <| comparison (<=))
+          (">=", Function <| comparison (>=))
+          ("!=", Function <| comparison (<>)) ]
 
 let lookup str env =
     match Map.tryFind str env with
@@ -39,16 +55,18 @@ let lookup str env =
 //----------- eval
 let rec eval env expr =
     match expr with
-    | Float _ | Integer _ as literal -> literal
-    | Symbol str ->
-        lookup str env
-    | Sublist (h::t) ->
+    | Float _
+    | Integer _
+    | Bool _ as literal -> literal
+    | Symbol str -> lookup str env
+    | Sublist (h :: t) ->
         let callable = eval env h
         let args = List.map (eval env) t
+
         match callable with
         | Function f -> f args env
         | Error str as error -> error
-        | _ ->  Error "Not callable"
+        | _ -> Error "Not callable"
     | _ -> Error "Not implemented"
 
 //----------- Parsing
@@ -68,7 +86,11 @@ let atomize (s: string) =
         try
             s |> float |> Float
         with
-        | :? System.FormatException -> Symbol s
+        | :? System.FormatException ->
+            match s with
+            | "true" -> Bool true
+            | "false" -> Bool false
+            | _ -> Symbol s
 
 let rec parse_each tokens =
     let rec loop_tail acc rest =
@@ -116,15 +138,16 @@ let rec to_string expression =
     | Float x -> string x
     | Integer x -> string x
     | Symbol s -> s
+    | Bool x ->
+        match x with
+        | true -> "true"
+        | false -> "false"
 
 //---------REPL
 
 //helper to use in repl
 let fsi_eval str =
-    str
-    |> tokenize
-    |> parse
-    |> eval global_env
+    str |> tokenize |> parse |> eval global_env
 
 let rec repl x =
     printf "smol>"
