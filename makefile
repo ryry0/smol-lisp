@@ -13,4 +13,6 @@ format:
 fmt: format lint
 
 lint:
-	dotnet fsharplint lint $(SOURCES)
+	for i in $(SOURCES) ; do \
+		dotnet fsharplint lint $$i ; \
+	done
