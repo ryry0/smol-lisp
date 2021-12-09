@@ -14,7 +14,7 @@ and Env = Map<string, Expression>
 let lookup str env =
     match Map.tryFind str env with
     | Some x -> x
-    | None -> Error $"Symbol lookup failure: {str}"
+    | None -> Error $"lookup: Symbol lookup failure - {str}"
 
 
 //----------- eval
@@ -87,12 +87,6 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
 
     | _ -> (Error "if: too many arguments", env)
 
-//convenience function for returning results when operation does nothing to env
-let nop_env f args env =
-    let res = f args env
-    (res, env)
-
-
 let math op (args: Expression list) (env: Env) =
     let f x y =
         match (x, y) with
@@ -109,11 +103,11 @@ let comparison op (args: Expression list) (env: Env) =
         match (x, y) with
         | (Float x, Float y) -> Bool(op x y)
         | (Integer x, Integer y) -> Bool(op x y)
-        | _ -> Error $"Incorrect or mismatched type"
+        | _ -> Error $"comparison: Incorrect or mismatched type"
 
 
     match args with
-    | [] -> Error $"no arguments"
+    | [] -> Error $"comparison: No arguments"
     | l -> List.reduce f args
 
 let equals (args: Expression list) (env: Env) =
@@ -122,53 +116,44 @@ let equals (args: Expression list) (env: Env) =
         | (Float x, Float y) -> Bool((=) x y)
         | (Integer x, Integer y) -> Bool((=) x y)
         | (Bool x, Bool y) -> Bool((=) x y)
-        | _ -> Error $"Incorrect or mismatched type"
+        | _ -> Error $"equals: Incorrect or mismatched type"
 
 
     match args with
-    | [] -> Error $"no arguments"
+    | [] -> Error $"equals: No arguments"
     | l -> List.reduce f args
 
 let not_equals (args: Expression list) (env: Env) =
     match equals args env with
     | Bool x -> Bool(not x)
     | Error _ as error -> error
-    | _ -> Error "notequals"
+    | _ -> Error "notequals:"
+
+//convenience function for returning results when operation does nothing to env
+let nop_env f args env =
+    let res = f args env
+    (res, env)
+
+let pure_func f =
+    f |> nop_env |> foldenv_bind |> Function
+
+let pure_func' t f =
+    f |> t |> nop_env |> foldenv_bind |> Function
 
 //----------- Environment
 let global_env =
-    Env [ ("+", (+) |> math |> nop_env |> foldenv_bind |> Function)
-          ("-", (-) |> math |> nop_env |> foldenv_bind |> Function)
-          ("*", (*) |> math |> nop_env |> foldenv_bind |> Function)
-          ("/", (/) |> math |> nop_env |> foldenv_bind |> Function)
-          ("<",
-           (<)
-           |> comparison
-           |> nop_env
-           |> foldenv_bind
-           |> Function)
-          (">",
-           (>)
-           |> comparison
-           |> nop_env
-           |> foldenv_bind
-           |> Function)
-          ("=", equals |> nop_env |> foldenv_bind |> Function)
-          ("<=",
-           (<=)
-           |> comparison
-           |> nop_env
-           |> foldenv_bind
-           |> Function)
-          (">=",
-           (>=)
-           |> comparison
-           |> nop_env
-           |> foldenv_bind
-           |> Function)
-          ("!=", not_equals |> nop_env |> foldenv_bind |> Function)
-          ("if", Function if')
-          ("begin", Function begin')
+    Env [ ("+", (+) |> pure_func' math)
+          ("-", (-) |> pure_func' math)
+          ("*", (*) |> pure_func' math)
+          ("/", (/) |> pure_func' math)
+          ("<", (<) |> pure_func' comparison)
+          (">", (>) |> pure_func' comparison)
+          ("<=", (<=) |> pure_func' comparison)
+          (">=", (>=) |> pure_func' comparison)
+          ("=", equals |> pure_func)
+          ("!=", not_equals |> pure_func)
+          ("if", if' |> Function)
+          ("begin", begin' |> Function)
           ("define", define |> Function) ]
 
 //----------- Parsing
@@ -217,16 +202,15 @@ let parse tokens =
     let (exprlist, rest, parens) = parse_each tokens
 
     match parens with
-    | i when i < 0 -> Error $"Unexpected closing parenthesis"
-    | i when i > 0 -> Error $"Missing {i} closing parentheses"
+    | i when i < 0 -> Error $"parse: Unexpected closing parenthesis"
+    | i when i > 0 -> Error $"parse: Missing {i} closing parentheses"
     | 0 ->
         match exprlist with
-        | [] -> Error "malformed input"
+        | [] -> Error "parse: malformed input"
         | _ ->
             match List.head exprlist with
             | Sublist y as res -> res
-            | _ -> Error "missing opening parens"
-
+            | _ -> Error "parse: missing opening parens"
 
 let rec to_string expression =
     match expression with
