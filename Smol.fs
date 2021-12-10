@@ -31,6 +31,7 @@ let rec eval env expr =
         | Function f -> f args env_evaled
         | Error str as error -> (error, env_evaled)
         | e -> (Error $"eval: {e} not callable", env_evaled)
+
     | Error _ as error -> (error, env)
     | _ -> (Error "eval: Not implemented", env)
 
@@ -80,7 +81,9 @@ let car args env =
             match l with
             | [] -> Sublist []
             | x :: xs -> x
+
         | _ -> Error "car: Not a list"
+
     | _ -> Error "car: Too many arguments"
 
 let cdr args env =
@@ -92,7 +95,9 @@ let cdr args env =
             match l with
             | [] -> Error "cdr: Empty list"
             | x :: xs -> Sublist xs
+
         | _ -> Error "cdr: Not a list"
+
     | _ -> Error "cdr: Too many arguments"
 
 let cons (args: Expression list) env =
@@ -103,6 +108,7 @@ let cons (args: Expression list) env =
         match y with
         | Sublist l -> Sublist(x :: l)
         | _ -> Error "cons: Not a list"
+
     | _ -> Error "cons: Too many arguments"
 
 let define (args: Expression list) env =
@@ -114,6 +120,7 @@ let define (args: Expression list) env =
             let (res_value, res_env) = eval env value
             let new_env = Map.add name res_value res_env
             (Symbol name, new_env)
+
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments", env)
     | _ -> (Error "define: Too many arguments", env)
@@ -126,7 +133,9 @@ let set' args env =
             let (res_value, res_env) = eval env value
             let new_env = Map.add name res_value res_env
             (Symbol name, new_env)
+
         | None -> (Error $"set!: Symbol not found {name}", env)
+
     | [] -> (Error "set!: No name provided", env)
     | [ x ] -> (Error "set!: Too few arguments", env)
     | _ -> (Error "set!: Too many arguments", env)
@@ -140,13 +149,10 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
         let (res, res_env) = eval env cond
 
         match res with
-        | Bool x ->
-            if x then
-                eval res_env conseq
-            else
-                eval res_env alt
-        | _ -> //anything not 'false' is true
-            eval res_env conseq
+        | Bool true -> eval res_env conseq
+        | Bool false
+        | Sublist [] -> eval res_env alt //nil is false
+        | _ -> eval res_env conseq //anything not 'false' is true
 
     | _ -> (Error "if: too many arguments", env)
 
@@ -203,6 +209,32 @@ let pure_func f =
 let pure_func' t f =
     f |> t |> nop_env |> foldenv_bind |> Function
 
+
+let cond (args: Expression list) (env: Env) : Expression * Env =
+    let begin_bind = begin' |> nop_env |> foldenv_bind
+
+    let rec cond_tail (l: Expression List) (ienv: Env) : Expression * Env =
+        match l with
+        | [] -> (Sublist [], ienv)
+        | x :: xs ->
+            match x with
+            | Sublist [] -> Error "cond: Empty list", ienv
+            | Sublist (h :: t) ->
+                let (condition, res_env) = eval ienv h
+
+                match condition with
+                | Bool true -> begin_bind t res_env
+                | Bool false
+                | Sublist [] -> cond_tail xs ienv
+                | _ -> begin_bind t res_env
+            //everything except false or nil is true
+
+            | _ -> Error "cond: Clause not provided", ienv
+
+    match args with
+    | [] -> Error "cond: no arguments given", env
+    | l -> cond_tail l env
+
 //----------- Environment
 let global_env =
     Env [ ("+", (+) |> pure_func' math)
@@ -221,6 +253,7 @@ let global_env =
           ("car", car |> pure_func)
           ("cdr", cdr |> pure_func)
           ("cons", cons |> pure_func)
+          ("cond", cond |> Function)
           ("define", define |> Function)
           ("set!", set' |> Function)
           ("quote", quote |> nop_env |> Function)
@@ -291,6 +324,7 @@ let rec to_string expression =
         | l ->
             let inner = List.map to_string l |> List.reduce (+)
             " ( " + inner + " ) "
+
     | Float x -> string x
     | Integer x -> string x
     | Symbol s -> s
