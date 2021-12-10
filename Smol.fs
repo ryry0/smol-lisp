@@ -1,20 +1,21 @@
 module Smol
 
-//currently lambda closures are c-like
-//to do dynamic closures you need to keep function stack associated with
-//function
+//id the closure with Length.list
+type Id = Id of int
+
 type Expression =
     | Symbol of string
     | Float of float
     | Integer of int
     | Bool of bool
     | Sublist of List<Expression>
-    | Function of (List<Expression> -> Env -> Expression * Env)
-    //| Procedure of Function * Env
+    | Function of Function
     | Error of string
 
+and Function = List<Expression> -> Env -> Expression * Env
 and Frame = Map<string, Expression>
-and Env = Frame list
+and Env = Frame list * Closure list
+and Closure = Id * List<Frame>
 
 let lookup str env =
     //recursive lookup
@@ -29,7 +30,7 @@ let lookup str env =
                 | [] -> Error $"lookup: Symbol lookup failure - {str}"
                 | _ -> lookup_tail frames
 
-    lookup_tail env
+    lookup_tail (fst env)
 
 //----------- eval
 let rec eval env expr =
@@ -65,7 +66,7 @@ let foldenv_bind f args env =
     (res, f_env_res)
 
 //implementing comparisons and arith is great example of accidental complexity
-//implemented separate equality comparison since typesystem coulnd't generalize float -> bool
+//implemented separate equality comparison since typesystem couldn't generalize float -> bool
 //----------- builtins
 let atom args env =
     match args with
@@ -129,22 +130,22 @@ let cons (args: Expression list) env =
 let define (args: Expression list) env =
     match args with
     | [ Symbol name; value ] ->
-        match env with
+        match fst env with
         | [] -> (Error "define: Should never reach this, all envs popped", env)
         | frame :: frames ->
             match Map.tryFind name frame with
             | Some found -> (Error $"define: Symbol already defined {name}", env)
             | None ->
                 let (res_value, res_env) = eval env value
-                let (res_frame :: res_frames) = res_env
+                let (res_frame :: res_frames) = fst res_env
                 let new_frame = Map.add name res_value res_frame
-                (Symbol name, new_frame :: res_frames)
+                (Symbol name, (new_frame :: res_frames, snd res_env))
 
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments", env)
     | _ -> (Error "define: Too many arguments", env)
 
-let set' (args : Expression list) (env: Env) =
+let set' (args: Expression list) (env: Env) =
     match args with
     | [ Symbol name; value ] ->
         let predicate x =
@@ -154,21 +155,20 @@ let set' (args : Expression list) (env: Env) =
 
         let found =
             try
-                env
-                |> List.findIndex predicate
-            with :? System.Collections.Generic.KeyNotFoundException ->
-                -2
+                (fst env) |> List.findIndex predicate
+            with
+            | :? System.Collections.Generic.KeyNotFoundException -> -2
 
         match found with
         | -2 -> (Error $"set!: Symbol not found {name}", env)
         | frameid ->
-                //evaluate with whole frame stack otherwise you don't see local vars
-                let (res_value, res_env) = eval env value
+            //evaluate with whole frame stack otherwise you don't see local vars
+            let (res_value, res_env) = eval env value
 
-                let prev, (frame::after) = res_env |> List.splitAt frameid
-                let new_frame = Map.add name res_value frame
-                //splice new stack frame in the right spot
-                (Symbol name, prev @ [new_frame] @ after)
+            let prev, (frame :: after) = fst res_env |> List.splitAt frameid
+            let new_frame = Map.add name res_value frame
+            //splice new stack frame in the right spot
+            (Symbol name, (prev @ [ new_frame ] @ after, snd res_env))
 
     | [] -> (Error "set!: No name provided", env)
     | [ x ] -> (Error "set!: Too few arguments", env)
@@ -192,48 +192,99 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
 
 let list' args env = Sublist args //look for and forward errors?
 
-let lambda args env =
+//define the anonymous function
+let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
+    if List.length param_strs = List.length fargs then
+        let unwrap_id (Id x) = x
+        let id_predicate x = unwrap_id (fst x) = closure_id
+
+        let frame_stack = fst fenv
+        let closure_list = snd fenv
+
+        let new_frame = //create a new frame with bound vars
+            Map(List.zip param_strs fargs)
+
+        //retrieve the closure
+        let closure =
+            snd <| List.find id_predicate closure_list
+
+        let closure_num_frames = List.length closure
+
+        //push the frame on top of the closure and then on
+        //existing frame_stack
+        let new_framestack = [ new_frame ] @ closure @ frame_stack
+
+        printfn $"{new_framestack}"
+
+        let (res, res_env) = eval (new_framestack, closure_list) body
+
+        //pop the current frame w pattern matching
+        let _::res_framestack = fst res_env
+        let res_closure_list = snd res_env
+
+        //retrieve the modified closure and outer frames
+        let new_closure, new_outer_frames =
+            List.splitAt closure_num_frames res_framestack
+
+        //construct the new list of closures
+        let new_closure_list =
+            [ (Id closure_id, new_closure) ]
+            @ List.skipWhile id_predicate res_closure_list
+
+        let new_env = (new_outer_frames, new_closure_list)
+        (res, new_env)
+
+    else //do nothing to env
+        (Error "procedure: parameter arg mismatch", fenv)
+
+
+//lambda is not a nop_env because it adds closures
+let lambda (args: Expression list) (env: Env) =
     match args with
     | []
-    | [_] -> Error "lambda: Not enough arguments"
-    | parameters::[body] ->
+    | [ _ ] -> Error "lambda: Not enough arguments", env
+    | parameters :: [ body ] ->
         match (parameters, body) with
         | Sublist p, Sublist b ->
             let is_all_symbols =
                 p
-                |> List.forall (fun x -> match x with Symbol x -> true | _ -> false)
+                |> List.forall
+                    (fun x ->
+                        match x with
+                        | Symbol x -> true
+                        | _ -> false)
 
             if is_all_symbols then
                 let unwrap_symbol (Symbol x) = x
                 let param_strs = List.map unwrap_symbol p
-                let diff = List.length env - 1 //how many frames deep is this
-                let (closure, old) = List.splitAt diff env
+                let current_framestack = fst env
+                let current_closure_list = snd env
 
-                let f fargs (fenv: Env) =
-                    if List.length param_strs = List.length fargs then
-                        let new_frame = //create a new frame with bound vars
-                            Map (List.zip param_strs fargs)
-                        //dont close on caller's state!! ... or maybe you do
-                        //you need to get the latest stacks and put them on
+                //how many frames deep is this rel to global frame
+                let diff = List.length current_framestack - 1
 
-                        //get how many frames difference are we
-                        let new_framestack = [new_frame] @ closure @ fenv
+                //get the current stack frames to create closure from
+                let (closure, old) = List.splitAt diff current_framestack
 
-                        printfn $"{new_framestack}"
-                        let (res, res_frames) = eval new_framestack body
-                        (res, List.skip (diff+1) res_frames) //pop the frame when done //return original caller's frames??
+                //check how many closures there are
+                let closure_id = Id(List.length <| current_closure_list)
 
-                    else //do nothing to env
-                        (Error "lambda eval: parameter arg mismatch", fenv)
+                //add the closure to the environment and bind procedure
+                let env_with_closure =
+                    (current_framestack, [ (closure_id, closure) ] @ current_closure_list)
 
-                Function <| foldenv_bind f
+                let f =
+                    procedure closure_id param_strs body
+                    |> foldenv_bind
+
+                Function f, env_with_closure
             else
-                Error "lambda: One or more parameters have invalid names"
+                Error "lambda: One or more parameters have invalid names", env
 
         | Sublist [], Sublist _
-        | Sublist _ , Sublist []
-        | _ -> Error "lambda: arguments or body given incorrectly"
-    | _ -> Error "lambda: Too many arguments"
+        | Sublist _, Sublist []
+        | _ -> Error "lambda: arguments or body given incorrectly", env
+    | _ -> Error "lambda: Too many arguments", env
 
 let not' args env =
     match args with
@@ -327,7 +378,7 @@ let cond (args: Expression list) (env: Env) : Expression * Env =
     | l -> cond_tail l env
 
 //----------- Environment
-let global_env =
+let init_framestack =
     [ Map [ ("+", (+) |> pure_func' math)
             ("-", (-) |> pure_func' math)
             ("*", (*) |> pure_func' math)
@@ -336,7 +387,7 @@ let global_env =
             (">", (>) |> pure_func' comparison)
             ("<=", (<=) |> pure_func' comparison)
             (">=", (>=) |> pure_func' comparison)
-            ("=", equals |> pure_func)
+            ("==", equals |> pure_func)
             ("!=", not_equals |> pure_func)
             ("if", if' |> Function)
             ("atom?", atom |> pure_func)
@@ -349,9 +400,13 @@ let global_env =
             ("set!", set' |> Function)
             ("list", list' |> pure_func)
             ("not", not' |> pure_func)
-            ("lambda", lambda |> nop_env |> Function)
+            ("lambda", lambda |> Function)
             ("quote", quote |> nop_env |> Function)
             ("q", quote |> nop_env |> Function) ] ]
+
+let init_closure_list: Closure list = []
+
+let global_env = (init_framestack, init_closure_list)
 
 //----------- Parsing
 let tokenize (s: string) =
@@ -442,6 +497,8 @@ let rec repl env =
         |> parse
         |> eval env
 
-    printfn $"{List.length new_env} : {res} -> {new_env}"
+    printfn $"{List.length (fst new_env)} : {res} -> {new_env}"
 
     repl new_env
+
+//------load from file
