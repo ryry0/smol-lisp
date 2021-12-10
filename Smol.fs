@@ -1,5 +1,8 @@
 module Smol
 
+//currently lambda closures are c-like
+//to do dynamic closures you need to keep function stack associated with
+//function
 type Expression =
     | Symbol of string
     | Float of float
@@ -7,6 +10,7 @@ type Expression =
     | Bool of bool
     | Sublist of List<Expression>
     | Function of (List<Expression> -> Env -> Expression * Env)
+    //| Procedure of Function * Env
     | Error of string
 
 and Frame = Map<string, Expression>
@@ -202,18 +206,22 @@ let lambda args env =
             if is_all_symbols then
                 let unwrap_symbol (Symbol x) = x
                 let param_strs = List.map unwrap_symbol p
+                let diff = List.length env - 1 //how many frames deep is this
+                let (closure, old) = List.splitAt diff env
 
-                let f fargs fenv =
+                let f fargs (fenv: Env) =
                     if List.length param_strs = List.length fargs then
                         let new_frame = //create a new frame with bound vars
                             Map (List.zip param_strs fargs)
                         //dont close on caller's state!! ... or maybe you do
                         //you need to get the latest stacks and put them on
-                        let new_framestack = new_frame::env
+
+                        //get how many frames difference are we
+                        let new_framestack = [new_frame] @ closure @ fenv
 
                         printfn $"{new_framestack}"
-                        let (res, res_frame::res_frames) = eval new_framestack body
-                        (res, fenv) //pop the frame when done //return original caller's frames??
+                        let (res, res_frames) = eval new_framestack body
+                        (res, List.skip (diff+1) res_frames) //pop the frame when done //return original caller's frames??
 
                     else //do nothing to env
                         (Error "lambda eval: parameter arg mismatch", fenv)
