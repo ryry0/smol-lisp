@@ -207,11 +207,13 @@ let lambda args env =
                     if List.length param_strs = List.length fargs then
                         let new_frame = //create a new frame with bound vars
                             Map (List.zip param_strs fargs)
-                        //dont close on caller's state!!
-                        let new_framestack = new_frame::fenv
+                        //dont close on caller's state!! ... or maybe you do
+                        //you need to get the latest stacks and put them on
+                        let new_framestack = new_frame::env
 
+                        printfn $"{new_framestack}"
                         let (res, res_frame::res_frames) = eval new_framestack body
-                        (res, res_frames) //pop the frame when done
+                        (res, fenv) //pop the frame when done //return original caller's frames??
 
                     else //do nothing to env
                         (Error "lambda eval: parameter arg mismatch", fenv)
