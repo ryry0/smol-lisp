@@ -232,8 +232,7 @@ let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
         //existing frame_stack
         let new_framestack = [ new_frame ] @ closure @ frame_stack
 
-        printfn $"{new_framestack}"
-
+        printfn $"id : {closure_id} - frames-global : {List.length (new_framestack)-1}"
         let (res, res_env) = eval (new_framestack, closure_list) body
 
         //pop the current frame w pattern matching
@@ -247,7 +246,7 @@ let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
         //construct the new list of closures
         let new_closure_list =
             [ (Id closure_id, new_closure) ]
-            @ List.skipWhile id_predicate res_closure_list
+            @ List.filter (id_predicate >> not) res_closure_list
 
         let new_env = (new_outer_frames, new_closure_list)
         (res, new_env)
@@ -515,7 +514,8 @@ let rec repl env =
         |> parse
         |> eval env
 
-    printfn $"{List.length (fst new_env)} : {res} -> {new_env}"
+    printfn $"{(List.length (fst new_env), List.length (snd new_env))} : {res}
+    -> {snd new_env}"
 
     repl new_env
 
