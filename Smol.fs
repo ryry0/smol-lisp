@@ -33,25 +33,6 @@ let lookup str env =
     lookup_tail (fst env)
 
 //----------- eval
-(*
-let rec eval_old env expr =
-    match expr with
-    | Float _
-    | Integer _
-    | Bool _ as literal -> (literal, env)
-    | Symbol str -> (lookup str env, env)
-    | Sublist (h :: args) ->
-        let (callable, env_evaled) = eval env h
-
-        match callable with
-        | Function f -> f args env_evaled
-        | Error str as error -> (error, env_evaled)
-        | e -> (Error $"eval: {e} not callable", env_evaled)
-
-    | Error _ as error -> (error, env)
-    | _ -> (Error "eval: Not implemented", env)
-    *)
-
 let rec eval env expr =
     let rec loop_tail head args lenv =
         match head with
@@ -232,7 +213,7 @@ let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
         //existing frame_stack
         let new_framestack = [ new_frame ] @ closure @ frame_stack
 
-        printfn $"id : {closure_id} - frames-global : {List.length (new_framestack)-1}"
+        //printfn $"id : {closure_id} - frames-global : {List.length (new_framestack)-1}"
         let (res, res_env) = eval (new_framestack, closure_list) body
 
         //pop the current frame w pattern matching
@@ -523,3 +504,71 @@ let rec repl env =
     repl new_env
 
 //------load from file
+let get_expr (str: string) =
+    let rec get_expr_tail (expr: string) rest i =
+        match (expr,i) with
+        | ("", Some 0) ->
+            get_expr_helper expr rest i
+        | (a, Some 0) ->
+            expr, rest
+        | (a, i) ->
+            get_expr_helper expr rest i
+
+    and get_expr_helper (expr: string) rest i =
+        match rest with
+        | "" -> expr, rest
+        | rest ->
+            let current_char = rest[0]
+            let expr_final = expr + string current_char
+            let rest_final = rest[1..]
+
+            match current_char with
+            | '(' ->
+                let num =
+                    match i with
+                    | Some num -> Some (num + 1)
+                    | None -> Some 1
+                get_expr_tail expr_final rest_final num
+            | ')' ->
+                let num =
+                    match i with
+                    | Some num -> Some (num - 1)
+                    | None -> None //found a ) before any (...
+                get_expr_tail expr_final rest_final num
+            | _ ->
+                get_expr_tail expr_final rest_final i
+
+    get_expr_tail "" str None
+
+let load_and_execute name env =
+    let file = System.IO.File.ReadAllText name
+    printfn $"File loaded:\n\n{file}\n\n"
+
+    let rec evaluate_file text env =
+        let expr, rest_text = get_expr text
+        let clean_expr  = //strip newlines
+            expr |> String.filter
+                (fun x ->
+                    match x with
+                    | '\r'
+                    | '\n' -> false
+                    | _ -> true)
+
+        printfn $"Expr: \"{clean_expr}\"\nRest: \"{rest_text}\""
+        match (clean_expr, rest_text) with
+        | ("", "") -> (Sublist [], env)
+        | (_, _) ->
+            let (res, new_env) =
+                clean_expr
+                |> tokenize
+                |> parse
+                |> eval env
+
+            match (rest_text, res) with
+            | ("", _)
+            | (_, Error _) ->
+                (res, new_env)
+            | (_, _) -> //loop
+                evaluate_file rest_text new_env
+
+    evaluate_file file env
