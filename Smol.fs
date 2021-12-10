@@ -216,7 +216,7 @@ let lambda args env =
                     else //do nothing to env
                         (Error "lambda eval: parameter arg mismatch", fenv)
 
-                Function f
+                Function <| foldenv_bind f
             else
                 Error "lambda: One or more parameters have invalid names"
 
