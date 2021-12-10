@@ -9,13 +9,23 @@ type Expression =
     | Function of (List<Expression> -> Env -> Expression * Env)
     | Error of string
 
-and Env = Map<string, Expression>
+and Frame = Map<string, Expression>
+and Env = Frame list
 
 let lookup str env =
-    match Map.tryFind str env with
-    | Some x -> x
-    | None -> Error $"lookup: Symbol lookup failure - {str}"
+    //recursive lookup
+    let rec lookup_tail envlist =
+        match envlist with
+        | [] -> Error $"lookup: Should never reach this, all envs popped."
+        | frame :: frames ->
+            match Map.tryFind str frame with
+            | Some x -> x
+            | None ->
+                match frames with
+                | [] -> Error $"lookup: Symbol lookup failure - {str}"
+                | _ -> lookup_tail frames
 
+    lookup_tail env
 
 //----------- eval
 let rec eval env expr =
@@ -111,30 +121,50 @@ let cons (args: Expression list) env =
 
     | _ -> Error "cons: Too many arguments"
 
+//if it's not defined in the local lambda frame, define it
 let define (args: Expression list) env =
     match args with
     | [ Symbol name; value ] ->
-        match Map.tryFind name env with
-        | Some found -> (Error $"define: Symbol already defined {name}", env)
-        | None ->
-            let (res_value, res_env) = eval env value
-            let new_env = Map.add name res_value res_env
-            (Symbol name, new_env)
+        match env with
+        | [] -> (Error "define: Should never reach this, all envs popped", env)
+        | frame :: frames ->
+            match Map.tryFind name frame with
+            | Some found -> (Error $"define: Symbol already defined {name}", env)
+            | None ->
+                let (res_value, res_env) = eval env value
+                let (res_frame :: res_frames) = res_env
+                let new_frame = Map.add name res_value res_frame
+                (Symbol name, new_frame :: res_frames)
 
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments", env)
     | _ -> (Error "define: Too many arguments", env)
 
 let set' args env =
-    match args with
-    | [ Symbol name; value ] ->
-        match Map.tryFind name env with
-        | Some found ->
-            let (res_value, res_env) = eval env value
-            let new_env = Map.add name res_value res_env
-            (Symbol name, new_env)
+    let rec set_loop name value envlist =
+        match envlist with
+        //ok to give back unchanged envs for this corner case
+        | [] -> (Error "set! Should never reach this, all envs popped", envlist)
+        | frame :: frames ->
+            match Map.tryFind name frame with
+            | Some found ->
+                //evaluate with whole frame stack otherwise you don't see local vars??
+                let (res_value, res_env) = eval env value
+                let (res_frame :: res_frames) = res_env
+                let new_frame = Map.add name res_value res_frame
+                (Symbol name, new_frame :: res_frames)
 
-        | None -> (Error $"set!: Symbol not found {name}", env)
+            | None ->
+                match frames with
+                //no change, give back unchanged stack frames
+                | [] -> (Error $"set!: Symbol not found {name}", envlist)
+                | _ ->
+                    let (res, l) = set_loop name value frames //recurse on rest of frames
+                    //cons unchanged stack frame on newly formed list
+                    (res, frame :: l)
+
+    match args with
+    | [ Symbol name; value ] -> set_loop name value env
 
     | [] -> (Error "set!: No name provided", env)
     | [ x ] -> (Error "set!: Too few arguments", env)
@@ -251,29 +281,29 @@ let cond (args: Expression list) (env: Env) : Expression * Env =
 
 //----------- Environment
 let global_env =
-    Env [ ("+", (+) |> pure_func' math)
-          ("-", (-) |> pure_func' math)
-          ("*", (*) |> pure_func' math)
-          ("/", (/) |> pure_func' math)
-          ("<", (<) |> pure_func' comparison)
-          (">", (>) |> pure_func' comparison)
-          ("<=", (<=) |> pure_func' comparison)
-          (">=", (>=) |> pure_func' comparison)
-          ("=", equals |> pure_func)
-          ("!=", not_equals |> pure_func)
-          ("if", if' |> Function)
-          ("atom?", atom |> pure_func)
-          ("begin", begin' |> pure_func)
-          ("car", car |> pure_func)
-          ("cdr", cdr |> pure_func)
-          ("cons", cons |> pure_func)
-          ("cond", cond |> Function)
-          ("define", define |> Function)
-          ("set!", set' |> Function)
-          ("list", list' |> pure_func)
-          ("not", not' |> pure_func)
-          ("quote", quote |> nop_env |> Function)
-          ("q", quote |> nop_env |> Function) ]
+    [ Map [ ("+", (+) |> pure_func' math)
+            ("-", (-) |> pure_func' math)
+            ("*", (*) |> pure_func' math)
+            ("/", (/) |> pure_func' math)
+            ("<", (<) |> pure_func' comparison)
+            (">", (>) |> pure_func' comparison)
+            ("<=", (<=) |> pure_func' comparison)
+            (">=", (>=) |> pure_func' comparison)
+            ("=", equals |> pure_func)
+            ("!=", not_equals |> pure_func)
+            ("if", if' |> Function)
+            ("atom?", atom |> pure_func)
+            ("begin", begin' |> pure_func)
+            ("car", car |> pure_func)
+            ("cdr", cdr |> pure_func)
+            ("cons", cons |> pure_func)
+            ("cond", cond |> Function)
+            ("define", define |> Function)
+            ("set!", set' |> Function)
+            ("list", list' |> pure_func)
+            ("not", not' |> pure_func)
+            ("quote", quote |> nop_env |> Function)
+            ("q", quote |> nop_env |> Function) ] ]
 
 //----------- Parsing
 let tokenize (s: string) =
