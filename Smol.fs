@@ -33,7 +33,8 @@ let lookup str env =
     lookup_tail (fst env)
 
 //----------- eval
-let rec eval env expr =
+(*
+let rec eval_old env expr =
     match expr with
     | Float _
     | Integer _
@@ -49,7 +50,24 @@ let rec eval env expr =
 
     | Error _ as error -> (error, env)
     | _ -> (Error "eval: Not implemented", env)
+    *)
 
+let rec eval env expr =
+    let rec loop_tail head args lenv =
+        match head with
+        | Function f -> f args lenv
+        | Symbol str ->
+            loop_tail (lookup str lenv) args lenv
+        | e -> Error $"eval: {e} not callable", lenv
+
+    match expr with
+    | Float _
+    | Integer _
+    | Bool _ as literal -> (literal, env)
+    | Symbol str -> (lookup str env, env)
+    | Sublist (h :: args) -> loop_tail h args env
+    | Error _ as error -> (error, env)
+    | _ -> (Error "eval: Not implemented", env)
 
 let foldenv args env =
     //accumulates the results in list l while threading the environment through
