@@ -156,6 +156,9 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
 
     | _ -> (Error "if: too many arguments", env)
 
+let list' args env =
+    Sublist args //look for and forward errors?
+
 let math op (args: Expression list) (env: Env) =
     let f x y =
         match (x, y) with
@@ -256,6 +259,7 @@ let global_env =
           ("cond", cond |> Function)
           ("define", define |> Function)
           ("set!", set' |> Function)
+          ("list", list' |> pure_func)
           ("quote", quote |> nop_env |> Function)
           ("q", quote |> nop_env |> Function) ]
 
