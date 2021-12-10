@@ -31,6 +31,7 @@ let rec eval env expr =
         | Function f -> f args env_evaled
         | Error str as error -> (error, env_evaled)
         | e -> (Error $"eval: {e} not callable", env_evaled)
+    | Error _ as error -> (error, env)
     | _ -> (Error "eval: Not implemented", env)
 
 
@@ -51,6 +52,65 @@ let foldenv_bind f args env =
 //implementing comparisons and arith is great example of accidental complexity
 //implemented separate equality comparison since typesystem coulnd't generalize float -> bool
 //----------- builtins
+let atom args env =
+    match args with
+    | [] -> (Error "atom: No arguments given", env);
+    | [x] ->
+        let (res, res_env) = eval env x
+        match res with
+        | Sublist _ -> (Bool false, res_env)
+        | Error _ as error -> (error, res_env)
+        | _ -> (Bool true, res_env)
+
+    | _ -> (Error "atom: Too many arguments", env);
+
+let quote args env =
+    match args with
+    | [] -> (Error "quote: No arguments given", env)
+    | [x] ->
+        (x, env)
+    | _ -> (Error "quote: Too many arguments", env);
+
+let begin' args env =
+    let (res, res_env) = foldenv args env
+    (res |> List.rev |> List.head, res_env)
+
+let car args env =
+    match args with
+    | [] -> (Error "car: No arguments given", env)
+    | [x] ->
+        let (res, res_env) = eval env x
+        match res with
+        | Sublist l ->
+            match l with
+            | [] -> (Sublist [], res_env)
+            | x::xs ->(x, res_env)
+        | _ -> (Error "car: Not a list", res_env)
+    | _ -> (Error "car: Too many arguments", env)
+
+let cdr args env =
+    match args with
+    | [] -> (Error "cdr: No arguments given", env)
+    | [x] ->
+        let (res, res_env) = eval env x
+        match res with
+        | Sublist l ->
+            match l with
+            | [] -> (Error "cdr: Empty list", res_env)
+            | x::xs -> (Sublist xs, res_env)
+        | _ -> (Error "cdr: Not a list", res_env)
+    | _ -> (Error "cdr: Too many arguments", env)
+
+let cons (args: Expression list) env =
+    match args with
+    | [] -> Error "cons: No arguments given"
+    | [_] -> Error "cons: Too few arguments given"
+    | x::y::[] ->
+        match y with
+        | Sublist l -> Sublist (x::l)
+        | _ -> Error "cons: Not a list"
+    | _ -> Error "cons: Too many arguments"
+
 let define (args: Expression list) env =
     match args with
     | [ Symbol name; value ] ->
@@ -63,10 +123,6 @@ let define (args: Expression list) env =
     | [] -> (Error "define: No name provided", env)
     | [ x ] -> (Error "define: Too few arguments to define", env)
     | _ -> (Error "define: Too many arguments to define", env)
-
-let begin' args env =
-    let (res, res_env) = foldenv args env
-    (res |> List.rev |> List.head, res_env)
 
 let if' (args: Expression list) (env: Env) : Expression * Env =
     match args with
@@ -82,8 +138,8 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
                 eval res_env conseq
             else
                 eval res_env alt
-        | _ -> (Error "if: Condition does not return a boolean", env)
-
+        | _ -> //anything not 'false' is true
+            eval res_env conseq
 
     | _ -> (Error "if: too many arguments", env)
 
@@ -153,8 +209,14 @@ let global_env =
           ("=", equals |> pure_func)
           ("!=", not_equals |> pure_func)
           ("if", if' |> Function)
+          ("atom?", atom |> Function)
           ("begin", begin' |> Function)
-          ("define", define |> Function) ]
+          ("car", car |> Function)
+          ("cdr", cdr |> Function)
+          ("cons", cons |> pure_func)
+          ("define", define |> Function)
+          ("quote", quote |> Function)
+          ("q", quote |> Function) ]
 
 //----------- Parsing
 let tokenize (s: string) =
