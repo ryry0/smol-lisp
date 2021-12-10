@@ -414,12 +414,15 @@ let init_framestack =
             ("cons", cons |> pure_func)
             ("cond", cond |> Function)
             ("define", define |> Function)
+            ("def", define |> Function)
             ("set!", set' |> Function)
             ("list", list' |> pure_func)
             ("not", not' |> pure_func)
             ("lambda", lambda |> Function)
+            ("\\", lambda |> Function)
             ("quote", quote |> nop_env |> Function)
-            ("q", quote |> nop_env |> Function) ] ]
+            ("q", quote |> nop_env |> Function)
+            ("'", quote |> nop_env |> Function) ] ]
 
 let init_closure_list: Closure list = []
 
