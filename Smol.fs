@@ -140,31 +140,31 @@ let define (args: Expression list) env =
     | [ x ] -> (Error "define: Too few arguments", env)
     | _ -> (Error "define: Too many arguments", env)
 
-let set' args env =
-    let rec set_loop name value envlist =
-        match envlist with
-        //ok to give back unchanged envs for this corner case
-        | [] -> (Error "set! Should never reach this, all envs popped", envlist)
-        | frame :: frames ->
-            match Map.tryFind name frame with
-            | Some found ->
-                //evaluate with whole frame stack otherwise you don't see local vars??
-                let (res_value, res_env) = eval env value
-                let (res_frame :: res_frames) = res_env
-                let new_frame = Map.add name res_value res_frame
-                (Symbol name, new_frame :: res_frames)
-
-            | None ->
-                match frames with
-                //no change, give back unchanged stack frames
-                | [] -> (Error $"set!: Symbol not found {name}", envlist)
-                | _ ->
-                    let (res, l) = set_loop name value frames //recurse on rest of frames
-                    //cons unchanged stack frame on newly formed list
-                    (res, frame :: l)
-
+let set' (args : Expression list) (env: Env) =
     match args with
-    | [ Symbol name; value ] -> set_loop name value env
+    | [ Symbol name; value ] ->
+        let predicate x =
+            match Map.tryFind name x with
+            | Some _ -> true
+            | None -> false
+
+        let found =
+            try
+                env
+                |> List.findIndex predicate
+            with :? System.Collections.Generic.KeyNotFoundException ->
+                -2
+
+        match found with
+        | -2 -> (Error $"set!: Symbol not found {name}", env)
+        | frameid ->
+                //evaluate with whole frame stack otherwise you don't see local vars
+                let (res_value, res_env) = eval env value
+
+                let prev, (frame::after) = res_env |> List.splitAt frameid
+                let new_frame = Map.add name res_value frame
+                //splice new stack frame in the right spot
+                (Symbol name, prev @ [new_frame] @ after)
 
     | [] -> (Error "set!: No name provided", env)
     | [ x ] -> (Error "set!: Too few arguments", env)
@@ -187,6 +187,43 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
     | _ -> (Error "if: too many arguments", env)
 
 let list' args env = Sublist args //look for and forward errors?
+
+let lambda args env =
+    match args with
+    | []
+    | [_] -> Error "lambda: Not enough arguments"
+    | parameters::[body] ->
+        match (parameters, body) with
+        | Sublist p, Sublist b ->
+            let is_all_symbols =
+                p
+                |> List.forall (fun x -> match x with Symbol x -> true | _ -> false)
+
+            if is_all_symbols then
+                let unwrap_symbol (Symbol x) = x
+                let param_strs = List.map unwrap_symbol p
+
+                let f fargs fenv =
+                    if List.length param_strs = List.length fargs then
+                        let new_frame = //create a new frame with bound vars
+                            Map (List.zip param_strs fargs)
+                        //dont close on caller's state!!
+                        let new_framestack = new_frame::fenv
+
+                        let (res, res_frame::res_frames) = eval new_framestack body
+                        (res, res_frames) //pop the frame when done
+
+                    else //do nothing to env
+                        (Error "lambda eval: parameter arg mismatch", fenv)
+
+                Function f
+            else
+                Error "lambda: One or more parameters have invalid names"
+
+        | Sublist [], Sublist _
+        | Sublist _ , Sublist []
+        | _ -> Error "lambda: arguments or body given incorrectly"
+    | _ -> Error "lambda: Too many arguments"
 
 let not' args env =
     match args with
@@ -302,6 +339,7 @@ let global_env =
             ("set!", set' |> Function)
             ("list", list' |> pure_func)
             ("not", not' |> pure_func)
+            ("lambda", lambda |> nop_env |> Function)
             ("quote", quote |> nop_env |> Function)
             ("q", quote |> nop_env |> Function) ] ]
 
@@ -394,6 +432,6 @@ let rec repl env =
         |> parse
         |> eval env
 
-    printfn $"{res}"
+    printfn $"{List.length new_env} : {res} -> {new_env}"
 
     repl new_env
