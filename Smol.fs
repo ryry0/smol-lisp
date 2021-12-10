@@ -54,60 +54,54 @@ let foldenv_bind f args env =
 //----------- builtins
 let atom args env =
     match args with
-    | [] -> (Error "atom: No arguments given", env);
-    | [x] ->
-        let (res, res_env) = eval env x
-        match res with
-        | Sublist _ -> (Bool false, res_env)
-        | Error _ as error -> (error, res_env)
-        | _ -> (Bool true, res_env)
+    | [] -> Error "atom: No arguments given"
+    | [ x ] ->
+        match x with
+        | Sublist _ -> Bool false
+        | Error _ as error -> error
+        | _ -> Bool true
 
-    | _ -> (Error "atom: Too many arguments", env);
+    | _ -> Error "atom: Too many arguments"
 
 let quote args env =
     match args with
-    | [] -> (Error "quote: No arguments given", env)
-    | [x] ->
-        (x, env)
-    | _ -> (Error "quote: Too many arguments", env);
+    | [] -> Error "quote: No arguments given"
+    | [ x ] -> x
+    | _ -> Error "quote: Too many arguments"
 
-let begin' args env =
-    let (res, res_env) = foldenv args env
-    (res |> List.rev |> List.head, res_env)
+let begin' args env = args |> List.rev |> List.head
 
 let car args env =
     match args with
-    | [] -> (Error "car: No arguments given", env)
-    | [x] ->
-        let (res, res_env) = eval env x
-        match res with
+    | [] -> Error "car: No arguments given"
+    | [ x ] ->
+        match x with
         | Sublist l ->
             match l with
-            | [] -> (Sublist [], res_env)
-            | x::xs ->(x, res_env)
-        | _ -> (Error "car: Not a list", res_env)
-    | _ -> (Error "car: Too many arguments", env)
+            | [] -> Sublist []
+            | x :: xs -> x
+        | _ -> Error "car: Not a list"
+    | _ -> Error "car: Too many arguments"
 
 let cdr args env =
     match args with
-    | [] -> (Error "cdr: No arguments given", env)
-    | [x] ->
-        let (res, res_env) = eval env x
-        match res with
+    | [] -> Error "cdr: No arguments given"
+    | [ x ] ->
+        match x with
         | Sublist l ->
             match l with
-            | [] -> (Error "cdr: Empty list", res_env)
-            | x::xs -> (Sublist xs, res_env)
-        | _ -> (Error "cdr: Not a list", res_env)
-    | _ -> (Error "cdr: Too many arguments", env)
+            | [] -> Error "cdr: Empty list"
+            | x :: xs -> Sublist xs
+        | _ -> Error "cdr: Not a list"
+    | _ -> Error "cdr: Too many arguments"
 
 let cons (args: Expression list) env =
     match args with
     | [] -> Error "cons: No arguments given"
-    | [_] -> Error "cons: Too few arguments given"
-    | x::y::[] ->
+    | [ _ ] -> Error "cons: Too few arguments given"
+    | x :: y :: [] ->
         match y with
-        | Sublist l -> Sublist (x::l)
+        | Sublist l -> Sublist(x :: l)
         | _ -> Error "cons: Not a list"
     | _ -> Error "cons: Too many arguments"
 
@@ -121,8 +115,21 @@ let define (args: Expression list) env =
             let new_env = Map.add name res_value res_env
             (Symbol name, new_env)
     | [] -> (Error "define: No name provided", env)
-    | [ x ] -> (Error "define: Too few arguments to define", env)
-    | _ -> (Error "define: Too many arguments to define", env)
+    | [ x ] -> (Error "define: Too few arguments", env)
+    | _ -> (Error "define: Too many arguments", env)
+
+let set' args env =
+    match args with
+    | [ Symbol name; value ] ->
+        match Map.tryFind name env with
+        | Some found ->
+            let (res_value, res_env) = eval env value
+            let new_env = Map.add name res_value res_env
+            (Symbol name, new_env)
+        | None -> (Error $"set!: Symbol not found {name}", env)
+    | [] -> (Error "set!: No name provided", env)
+    | [ x ] -> (Error "set!: Too few arguments", env)
+    | _ -> (Error "set!: Too many arguments", env)
 
 let if' (args: Expression list) (env: Env) : Expression * Env =
     match args with
@@ -209,14 +216,15 @@ let global_env =
           ("=", equals |> pure_func)
           ("!=", not_equals |> pure_func)
           ("if", if' |> Function)
-          ("atom?", atom |> Function)
-          ("begin", begin' |> Function)
-          ("car", car |> Function)
-          ("cdr", cdr |> Function)
+          ("atom?", atom |> pure_func)
+          ("begin", begin' |> pure_func)
+          ("car", car |> pure_func)
+          ("cdr", cdr |> pure_func)
           ("cons", cons |> pure_func)
           ("define", define |> Function)
-          ("quote", quote |> Function)
-          ("q", quote |> Function) ]
+          ("set!", set' |> Function)
+          ("quote", quote |> nop_env |> Function)
+          ("q", quote |> nop_env |> Function) ]
 
 //----------- Parsing
 let tokenize (s: string) =
