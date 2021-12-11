@@ -59,7 +59,9 @@ let rec eval env expr =
         | Function f -> f args lenv
         | Symbol str ->
             loop_tail (lookup str lenv) args lenv
-        | Sublist _ as l -> eval lenv l
+        | Sublist _ as l ->
+            res_eval res_env_eval eval lenv l
+
         | e -> Error $"eval: {e} not callable", lenv
 
     match expr with
@@ -145,7 +147,7 @@ let cdr args env =
 
         | _ -> Error "cdr: Not a list"
 
-    | _ -> Error "cdr: Too many arguments"
+    | x -> Error $"cdr: Too many arguments {List.length args} (cdr {args})"
 
 let cons (args: Expression list) env =
     match args with
@@ -266,6 +268,7 @@ let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
         (res, new_env)
 
     else //do nothing to env
+        printfn $"id: {closure_id} params {List.length param_strs}: {param_strs} fargs {List.length fargs}: {fargs} body: {body}"
         (Error "procedure: parameter arg mismatch", fenv)
 
 
@@ -359,7 +362,20 @@ let equals (args: Expression list) (env: Env) =
         | (Integer x, Integer y) -> Bool((=) x y)
         | (Bool x, Bool y) -> Bool((=) x y)
         | (Symbol x, Symbol y) -> Bool((=) x y)
-        | _ -> Error $"equals: Incorrect or mismatched type"
+        | (Sublist x, Sublist y) ->
+            if List.length x <> List.length y then
+                Bool false
+            else
+                let test_eq_num x y =
+                    match x, y with //repeated code?
+                    | (Integer x, Integer y) -> ((=) x y)
+                    | (Float x, Float y) -> ((=) x y)
+                    | (_, _) -> false
+
+                let test_res = List.forall2 test_eq_num x y
+                Bool test_res
+
+        | (x, y) -> Error $"equals: Incorrect or mismatched type (= {x} {y})"
 
 
     match args with
@@ -598,6 +614,8 @@ let load_and_execute name env =
                 |> tokenize
                 |> parse
                 |> eval env
+
+            printfn $"Result: {res}"
 
             match (rest_text, res) with
             | ("", _)
