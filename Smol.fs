@@ -78,6 +78,17 @@ let atom args env =
 
     | _ -> Error "atom: Too many arguments"
 
+let null' args env =
+    match args with
+    | [] -> Error "null: No arguments given"
+    | [ x ] ->
+        match x with
+        | Sublist [] -> Bool true
+        | Error _ as error -> error
+        | _ -> Bool false
+
+    | _ -> Error "null: Too many arguments"
+
 let quote args env =
     match args with
     | [] -> Error "quote: No arguments given"
@@ -189,7 +200,7 @@ let if' (args: Expression list) (env: Env) : Expression * Env =
 
     | _ -> (Error "if: too many arguments", env)
 
-let list' args env = Sublist args //look for and forward errors?
+let list' args env = Sublist args
 
 //define the anonymous function
 let procedure (Id closure_id) param_strs body fargs (fenv: Env) =
@@ -399,6 +410,7 @@ let init_framestack =
             ("set!", set' |> Function)
             ("list", list' |> pure_func)
             ("not", not' |> pure_func)
+            ("null?", null' |> pure_func)
             ("lambda", lambda |> Function)
             ("\\", lambda |> Function)
             ("quote", quote |> nop_env |> Function)
