@@ -358,6 +358,7 @@ let equals (args: Expression list) (env: Env) =
         | (Float x, Float y) -> Bool((=) x y)
         | (Integer x, Integer y) -> Bool((=) x y)
         | (Bool x, Bool y) -> Bool((=) x y)
+        | (Symbol x, Symbol y) -> Bool((=) x y)
         | _ -> Error $"equals: Incorrect or mismatched type"
 
 
