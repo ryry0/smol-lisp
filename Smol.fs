@@ -34,11 +34,32 @@ let lookup str env =
 
 //----------- eval
 let rec eval env expr =
+    match expr with
+    | Float _
+    | Integer _
+    | Bool _ as literal -> (literal, env)
+    | Symbol str -> (lookup str env, env)
+    | Sublist (h :: args) ->
+        let (callable, env_evaled) = eval env h
+
+        match callable with
+        | Function f -> f args env_evaled
+        | Error str as error -> (error, env_evaled)
+        | e -> (Error $"eval: {e} not callable", env_evaled)
+
+    | Error _ as error -> (error, env)
+    | _ -> (Error "eval: Not implemented", env)
+
+//TODO: this one can't actually parse
+//((if (true) + *) 42 100) correctly
+(*
+let rec eval env expr =
     let rec loop_tail head args lenv =
         match head with
         | Function f -> f args lenv
         | Symbol str ->
             loop_tail (lookup str lenv) args lenv
+        | Sublist _ as l -> eval lenv l
         | e -> Error $"eval: {e} not callable", lenv
 
     match expr with
@@ -49,6 +70,7 @@ let rec eval env expr =
     | Sublist (h :: args) -> loop_tail h args env
     | Error _ as error -> (error, env)
     | _ -> (Error "eval: Not implemented", env)
+    *)
 
 let foldenv args env =
     //accumulates the results in list l while threading the environment through
