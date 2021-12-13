@@ -189,13 +189,13 @@ let set' (args: Expression list) (env: Env) =
 
         let found =
             try
-                (fst env) |> List.findIndex predicate
+                (fst env) |> List.findIndex predicate |> Some
             with
-            | :? System.Collections.Generic.KeyNotFoundException -> -2
+            | :? System.Collections.Generic.KeyNotFoundException -> None
 
         match found with
-        | -2 -> (Error $"set!: Symbol not found {name}", env)
-        | frameid ->
+        | None -> (Error $"set!: Symbol not found {name}", env)
+        | Some frameid ->
             //evaluate with whole frame stack otherwise you don't see local vars
             let (res_value, res_env) = eval env value
 
