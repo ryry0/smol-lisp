@@ -22,8 +22,8 @@ makes code like the following possible:
 (account1 -10.00) ;returns 70.0
 
 (define account2 (make-account 500.00))
-(account1 -20.00) ;returns 480.0
-(account1 -20.00) ;returns 460
+(account2 -20.00) ;returns 480.0
+(account2 -20.00) ;returns 460
 ```
 
 Todo:
